@@ -11,6 +11,7 @@ import (
 	"github.com/ty-e-boyd/thepaper/config"
 	"github.com/ty-e-boyd/thepaper/email"
 	"github.com/ty-e-boyd/thepaper/feeds"
+	"github.com/ty-e-boyd/thepaper/models"
 )
 
 const (
@@ -47,6 +48,22 @@ func main() {
 		return
 	}
 
+	// Filter articles to last 24 hours
+	cutoff := time.Now().Add(-24 * time.Hour)
+	var recentArticles []models.Article
+	for _, article := range articles {
+		if article.Published.After(cutoff) || article.Published.IsZero() {
+			recentArticles = append(recentArticles, article)
+		}
+	}
+	log.Printf("Filtered to %d articles from last 24 hours (from %d total)\n", len(recentArticles), len(articles))
+	articles = recentArticles
+
+	if len(articles) == 0 {
+		log.Println("No recent articles found, exiting")
+		return
+	}
+
 	// Show article distribution by source
 	sourceCount := make(map[string]int)
 	for _, article := range articles {
@@ -59,8 +76,8 @@ func main() {
 	log.Println()
 
 	// Analyze and select top articles using Gemini
-	log.Println("Analyzing articles with Gemini AI...")
-	analyzer, err := ai.NewAnalyzer(ctx, cfg.GeminiAPIKey)
+	log.Printf("Analyzing articles with Gemini AI (rate limit: %v)...\n", cfg.GeminiRateLimit)
+	analyzer, err := ai.NewAnalyzer(ctx, cfg.GeminiAPIKey, cfg.GeminiRateLimit)
 	if err != nil {
 		log.Fatalf("Failed to create analyzer: %v", err)
 	}

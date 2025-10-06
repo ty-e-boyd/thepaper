@@ -14,10 +14,11 @@ type Article struct {
 
 // Config holds application configuration
 type Config struct {
-	GeminiAPIKey   string
-	SendGridAPIKey string
-	FromEmail      string
-	ToEmail        string
+	GeminiAPIKey    string
+	SendGridAPIKey  string
+	FromEmail       string
+	ToEmail         string
+	GeminiRateLimit time.Duration
 }
 
 // AnalyzedArticle wraps an Article with AI analysis results

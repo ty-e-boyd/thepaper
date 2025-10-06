@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"google.golang.org/genai"
 	"github.com/ty-e-boyd/thepaper/models"
@@ -14,11 +15,13 @@ import (
 
 // Analyzer uses Gemini AI to select and summarize articles
 type Analyzer struct {
-	client *genai.Client
+	client        *genai.Client
+	rateLimitDelay time.Duration
+	lastRequestTime time.Time
 }
 
-// NewAnalyzer creates a new Gemini-powered analyzer
-func NewAnalyzer(ctx context.Context, apiKey string) (*Analyzer, error) {
+// NewAnalyzer creates a new Gemini-powered analyzer with rate limiting
+func NewAnalyzer(ctx context.Context, apiKey string, rateLimitDelay time.Duration) (*Analyzer, error) {
 	client, err := genai.NewClient(ctx, &genai.ClientConfig{
 		APIKey:  apiKey,
 		Backend: genai.BackendGeminiAPI,
@@ -27,12 +30,51 @@ func NewAnalyzer(ctx context.Context, apiKey string) (*Analyzer, error) {
 		return nil, fmt.Errorf("failed to create Gemini client: %w", err)
 	}
 
-	return &Analyzer{client: client}, nil
+	return &Analyzer{
+		client:         client,
+		rateLimitDelay: rateLimitDelay,
+		lastRequestTime: time.Now(),
+	}, nil
 }
 
 // Close cleans up the analyzer resources
 func (a *Analyzer) Close() {
 	// Client cleanup if needed
+}
+
+// rateLimit ensures we don't exceed API rate limits
+func (a *Analyzer) rateLimit() {
+	elapsed := time.Since(a.lastRequestTime)
+	if elapsed < a.rateLimitDelay {
+		time.Sleep(a.rateLimitDelay - elapsed)
+	}
+	a.lastRequestTime = time.Now()
+}
+
+// retryWithBackoff retries a function with exponential backoff on rate limit errors
+func retryWithBackoff(ctx context.Context, maxRetries int, fn func() error) error {
+	var lastErr error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			// Exponential backoff: 1s, 2s, 4s, 8s, 16s
+			backoff := time.Duration(1<<uint(attempt-1)) * time.Second
+			log.Printf("  Retry attempt %d/%d after %v...", attempt, maxRetries, backoff)
+			time.Sleep(backoff)
+		}
+
+		err := fn()
+		if err == nil {
+			return nil
+		}
+
+		lastErr = err
+		// Check if it's a rate limit error
+		if !strings.Contains(err.Error(), "RESOURCE_EXHAUSTED") && !strings.Contains(err.Error(), "429") {
+			// Not a rate limit error, don't retry
+			return err
+		}
+	}
+	return fmt.Errorf("max retries exceeded: %w", lastErr)
 }
 
 // SelectAndSummarize analyzes articles, scores them for relevance, and summarizes the top ones
@@ -107,19 +149,30 @@ Description: %s
 
 Respond with ONLY a number between 0 and 10.`, article.Title, article.Description)
 
-	content := []*genai.Content{{Parts: []*genai.Part{genai.NewPartFromText(prompt)}}}
-	response, err := a.client.Models.GenerateContent(ctx, "gemini-2.0-flash-exp", content, nil)
-	if err != nil {
-		return 0, fmt.Errorf("failed to score article: %w", err)
-	}
+	var score float64
+	err := retryWithBackoff(ctx, 5, func() error {
+		// Rate limit before making request
+		a.rateLimit()
 
-	// Extract score from response
-	scoreStr := strings.TrimSpace(response.Text())
-	score, err := strconv.ParseFloat(scoreStr, 64)
-	if err != nil {
-		return 0, fmt.Errorf("invalid score format: %s", scoreStr)
-	}
+		content := []*genai.Content{{Parts: []*genai.Part{genai.NewPartFromText(prompt)}}}
+		response, err := a.client.Models.GenerateContent(ctx, "gemini-2.0-flash", content, nil)
+		if err != nil {
+			return fmt.Errorf("failed to score article: %w", err)
+		}
 
+		// Extract score from response
+		scoreStr := strings.TrimSpace(response.Text())
+		parsedScore, err := strconv.ParseFloat(scoreStr, 64)
+		if err != nil {
+			return fmt.Errorf("invalid score format: %s", scoreStr)
+		}
+		score = parsedScore
+		return nil
+	})
+
+	if err != nil {
+		return 0, err
+	}
 	return score, nil
 }
 
@@ -134,11 +187,23 @@ Content: %s
 
 Summary:`, article.Title, article.Content)
 
-	content := []*genai.Content{{Parts: []*genai.Part{genai.NewPartFromText(prompt)}}}
-	response, err := a.client.Models.GenerateContent(ctx, "gemini-2.0-flash-exp", content, nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to summarize article: %w", err)
-	}
+	var summary string
+	err := retryWithBackoff(ctx, 5, func() error {
+		// Rate limit before making request
+		a.rateLimit()
 
-	return strings.TrimSpace(response.Text()), nil
+		content := []*genai.Content{{Parts: []*genai.Part{genai.NewPartFromText(prompt)}}}
+		response, err := a.client.Models.GenerateContent(ctx, "gemini-2.0-flash", content, nil)
+		if err != nil {
+			return fmt.Errorf("failed to summarize article: %w", err)
+		}
+
+		summary = strings.TrimSpace(response.Text())
+		return nil
+	})
+
+	if err != nil {
+		return "", err
+	}
+	return summary, nil
 }
