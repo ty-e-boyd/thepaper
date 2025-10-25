@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	topArticlesCount = 5 // Number of top articles to include in the email
+	topArticlesCount = 8 // Number of top articles to include in the email
 )
 
 func main() {
@@ -91,7 +91,14 @@ func main() {
 
 	// Build HTML email
 	log.Println("Building email...")
-	htmlContent := email.BuildHTML(selectedArticles)
+
+	// Count unique sources from all fetched articles
+	uniqueSources := make(map[string]bool)
+	for _, article := range articles {
+		uniqueSources[article.Source] = true
+	}
+
+	htmlContent := email.BuildHTML(selectedArticles, len(articles), len(uniqueSources))
 
 	// Send email via SendGrid
 	log.Println("Sending email via SendGrid...")

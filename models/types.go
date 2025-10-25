@@ -26,5 +26,7 @@ type AnalyzedArticle struct {
 	Article
 	RelevanceScore float64
 	Summary        string
+	Tags           []string
+	Category       string
 	Selected       bool
 }

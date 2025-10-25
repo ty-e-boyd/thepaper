@@ -8,8 +8,49 @@ import (
 	"github.com/ty-e-boyd/thepaper/models"
 )
 
+// capitalizeTag capitalizes the first letter of each word in a tag
+func capitalizeTag(tag string) string {
+	if tag == "" {
+		return tag
+	}
+
+	words := strings.Fields(tag)
+	for i, word := range words {
+		if len(word) > 0 {
+			words[i] = strings.ToUpper(word[:1]) + strings.ToLower(word[1:])
+		}
+	}
+	return strings.Join(words, " ")
+}
+
+// getTagColor returns a color for a tag based on its content
+func getTagColor(tag string) string {
+	colors := []string{
+		"#3498db", // blue
+		"#e74c3c", // red
+		"#2ecc71", // green
+		"#f39c12", // orange
+		"#9b59b6", // purple
+		"#1abc9c", // turquoise
+		"#e67e22", // carrot
+		"#34495e", // dark gray
+		"#16a085", // green sea
+		"#c0392b", // dark red
+		"#8e44ad", // wisteria
+		"#27ae60", // nephritis
+	}
+
+	// Simple hash function to assign consistent colors to tags
+	hash := 0
+	for _, char := range tag {
+		hash += int(char)
+	}
+
+	return colors[hash%len(colors)]
+}
+
 // BuildHTML generates an HTML email from analyzed articles
-func BuildHTML(articles []models.AnalyzedArticle) string {
+func BuildHTML(articles []models.AnalyzedArticle, totalArticles, totalSources int) string {
 	var sb strings.Builder
 
 	// Email header and styles
@@ -70,7 +111,30 @@ func BuildHTML(articles []models.AnalyzedArticle) string {
 		.article-meta {
 			font-size: 13px;
 			color: #7f8c8d;
+			margin-bottom: 8px;
+		}
+		.article-tags {
 			margin-bottom: 12px;
+		}
+		.tag {
+			display: inline-block;
+			color: white;
+			padding: 3px 10px;
+			border-radius: 12px;
+			font-size: 11px;
+			font-weight: 500;
+			margin-right: 6px;
+			margin-bottom: 4px;
+		}
+		.category-badge {
+			display: inline-block;
+			background-color: #3498db;
+			color: white;
+			padding: 3px 10px;
+			border-radius: 12px;
+			font-size: 11px;
+			font-weight: 600;
+			margin-right: 8px;
 		}
 		.article-summary {
 			color: #555;
@@ -87,8 +151,20 @@ func BuildHTML(articles []models.AnalyzedArticle) string {
 		.read-more:hover {
 			text-decoration: underline;
 		}
+		.stats {
+			margin-top: 30px;
+			padding: 15px;
+			background-color: #f8f9fa;
+			border-radius: 6px;
+			text-align: center;
+			font-size: 13px;
+			color: #555;
+		}
+		.stats strong {
+			color: #2c3e50;
+		}
 		.footer {
-			margin-top: 40px;
+			margin-top: 20px;
 			padding-top: 20px;
 			border-top: 2px solid #ecf0f1;
 			text-align: center;
@@ -105,22 +181,44 @@ func BuildHTML(articles []models.AnalyzedArticle) string {
 
 	// Add articles
 	for i, article := range articles {
+		// Build tags HTML
+		tagsHTML := ""
+		if len(article.Tags) > 0 {
+			for _, tag := range article.Tags {
+				capitalizedTag := capitalizeTag(tag)
+				color := getTagColor(tag)
+				tagsHTML += fmt.Sprintf(`<span class="tag" style="background-color: %s;">%s</span>`, color, escapeHTML(capitalizedTag))
+			}
+		}
+
 		sb.WriteString(fmt.Sprintf(`
 		<div class="article">
 			<div class="article-title">
 				<a href="%s" target="_blank">%d. %s</a>
 			</div>
 			<div class="article-meta">
+				<span class="category-badge">%s</span>
 				Source: %s | Score: %.1f/10
+			</div>
+			<div class="article-tags">
+				%s
 			</div>
 			<div class="article-summary">
 				%s
 			</div>
 			<a href="%s" class="read-more" target="_blank">Read full article →</a>
 		</div>
-`, article.Link, i+1, escapeHTML(article.Title), escapeHTML(article.Source),
-			article.RelevanceScore, escapeHTML(article.Summary), article.Link))
+`, article.Link, i+1, escapeHTML(article.Title), escapeHTML(article.Category),
+			escapeHTML(article.Source), article.RelevanceScore, tagsHTML,
+			escapeHTML(article.Summary), article.Link))
 	}
+
+	// Stats section
+	sb.WriteString(fmt.Sprintf(`
+		<div class="stats">
+			<p>📊 <strong>Today's Digest Stats:</strong> Analyzed <strong>%d articles</strong> from <strong>%d sources</strong></p>
+		</div>
+`, totalArticles, totalSources))
 
 	// Footer
 	sb.WriteString(`
