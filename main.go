@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/ty-e-boyd/thepaper/ai"
 	"github.com/ty-e-boyd/thepaper/config"
+	"github.com/ty-e-boyd/thepaper/database"
 	"github.com/ty-e-boyd/thepaper/email"
 	"github.com/ty-e-boyd/thepaper/feeds"
 	"github.com/ty-e-boyd/thepaper/models"
@@ -19,12 +21,32 @@ const (
 )
 
 func main() {
+	// Parse command-line flags
+	dryRun := flag.Bool("dry-run", false, "Run without sending emails (preview mode)")
+	flag.Parse()
+
 	// Load .env file
 	if err := godotenv.Load(); err != nil {
 		log.Println("No .env file found, using environment variables")
 	}
 
+	if *dryRun {
+		log.Println("🔍 DRY RUN MODE - No emails will be sent")
+	}
+
 	ctx := context.Background()
+
+	// Connect to database
+	log.Println("Connecting to database...")
+	if err := database.Connect(); err != nil {
+		log.Fatalf("Failed to connect to database: %v", err)
+	}
+	defer database.Close()
+
+	// Run migrations
+	if err := database.AutoMigrate(); err != nil {
+		log.Fatalf("Failed to run migrations: %v", err)
+	}
 
 	// Load configuration
 	log.Println("Loading configuration...")
@@ -33,9 +55,20 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	// Fetch articles from RSS feeds
+	// Get subscribed users from database
+	users, err := database.GetAllSubscribedUsers()
+	if err != nil {
+		log.Fatalf("Failed to get subscribed users: %v", err)
+	}
+	if len(users) == 0 {
+		log.Println("No subscribed users found, exiting")
+		return
+	}
+	log.Printf("Found %d subscribed user(s)", len(users))
+
+	// Fetch articles from RSS feeds (now pulls from database)
 	feedURLs := feeds.GetAllFeeds()
-	log.Printf("Fetching articles from %d feeds across %d categories...", len(feedURLs), len(feeds.GetCategories()))
+	log.Printf("Fetching articles from %d feeds from database across %d categories...", len(feedURLs), len(feeds.GetCategories()))
 	fetcher := feeds.NewFetcher()
 	articles, err := fetcher.FetchAll(feedURLs)
 	if err != nil {
@@ -64,6 +97,31 @@ func main() {
 		return
 	}
 
+	// Filter out articles sent in the last 30 days
+	recentArticleURLs, err := database.GetRecentArticleURLs(30)
+	if err != nil {
+		log.Printf("Warning: Failed to get recent article URLs: %v", err)
+		recentArticleURLs = make(map[string]bool)
+	}
+
+	var newArticles []models.Article
+	for _, article := range articles {
+		if !recentArticleURLs[article.Link] {
+			newArticles = append(newArticles, article)
+		}
+	}
+
+	duplicatesFiltered := len(articles) - len(newArticles)
+	if duplicatesFiltered > 0 {
+		log.Printf("Filtered out %d duplicate articles sent in the last 30 days", duplicatesFiltered)
+	}
+	articles = newArticles
+
+	if len(articles) == 0 {
+		log.Println("No new articles found (all were sent recently), exiting")
+		return
+	}
+
 	// Show article distribution by source
 	sourceCount := make(map[string]int)
 	for _, article := range articles {
@@ -89,26 +147,102 @@ func main() {
 	}
 	log.Printf("Selected and summarized %d top articles", len(selectedArticles))
 
-	// Build HTML email
-	log.Println("Building email...")
-
 	// Count unique sources from all fetched articles
 	uniqueSources := make(map[string]bool)
 	for _, article := range articles {
 		uniqueSources[article.Source] = true
 	}
 
-	htmlContent := email.BuildHTML(selectedArticles, len(articles), len(uniqueSources))
-
-	// Send email via SendGrid
-	log.Println("Sending email via SendGrid...")
-	sender := email.NewSender(cfg.SendGridAPIKey)
+	// Create email record in database
 	subject := fmt.Sprintf("The Paper - %s", time.Now().Format("January 2, 2006"))
-
-	err = sender.Send(cfg.FromEmail, cfg.ToEmail, subject, htmlContent)
+	emailRecord, err := database.CreateEmailSent(
+		subject,
+		len(articles),
+		len(uniqueSources),
+		len(users),
+	)
 	if err != nil {
-		log.Fatalf("Failed to send email: %v", err)
+		log.Fatalf("Failed to create email record: %v", err)
+	}
+	log.Printf("✓ Email record created (ID: %d)", emailRecord.ID)
+
+	// Save selected articles to database
+	for i, article := range selectedArticles {
+		_, err := database.CreateEmailArticle(
+			emailRecord.ID,
+			article.Link,
+			article.Title,
+			article.Source,
+			article.RelevanceScore,
+			article.Category,
+			article.Tags,
+			article.Summary,
+			article.Published,
+			i+1, // position (1-indexed)
+		)
+		if err != nil {
+			log.Printf("Warning: Failed to save article to database: %v", err)
+		}
+	}
+	log.Printf("✓ Saved %d articles to database", len(selectedArticles))
+
+	// Dry run mode - skip sending
+	if *dryRun {
+		log.Println("\n============================================================")
+		log.Println("🔍 DRY RUN SUMMARY")
+		log.Println("============================================================")
+		log.Printf("📊 Total articles fetched: %d", len(articles))
+		log.Printf("📰 Unique sources: %d", len(uniqueSources))
+		log.Printf("👥 Subscribed users: %d", len(users))
+		log.Printf("⭐ Top articles selected: %d", len(selectedArticles))
+		log.Println("\n📧 Would send to:")
+		for _, user := range users {
+			log.Printf("  • %s (%s)", user.Email, user.Name)
+		}
+		log.Println("\n📝 Selected articles:")
+		for i, article := range selectedArticles {
+			log.Printf("  %d. [%.1f] %s", i+1, article.RelevanceScore, article.Title)
+			log.Printf("     Source: %s | Category: %s", article.Source, article.Category)
+		}
+		log.Println("\n============================================================")
+		log.Println("✅ Dry run complete - no emails sent")
+		log.Println("============================================================")
+		return
 	}
 
-	log.Println(" Email sent successfully!")
+	// Send email to all subscribed users
+	sender := email.NewSender(cfg.SendGridAPIKey)
+	successCount := 0
+	failCount := 0
+
+	for _, user := range users {
+		log.Printf("Sending email to %s (%s)...", user.Email, user.Name)
+
+		// Build personalized HTML email
+		htmlContent := email.BuildHTML(selectedArticles, len(articles), len(uniqueSources))
+
+		err = sender.Send(cfg.FromEmail, user.Email, subject, htmlContent)
+		if err != nil {
+			log.Printf("  ✗ Failed to send to %s: %v", user.Email, err)
+			failCount++
+			continue
+		}
+
+		// Record that email was sent to this user
+		_, err = database.CreateUserEmail(user.ID, emailRecord.ID)
+		if err != nil {
+			log.Printf("  Warning: Failed to record email send for %s: %v", user.Email, err)
+		}
+
+		log.Printf("  ✓ Sent successfully to %s", user.Email)
+		successCount++
+	}
+
+	log.Println("\n============================================================")
+	log.Printf("Email campaign complete!")
+	log.Printf("Successfully sent: %d", successCount)
+	log.Printf("Failed: %d", failCount)
+	log.Printf("Total recipients: %d", len(users))
+	log.Printf("Articles featured: %d", len(selectedArticles))
+	log.Printf("============================================================")
 }

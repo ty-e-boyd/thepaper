@@ -17,7 +17,6 @@ type Config struct {
 	GeminiAPIKey    string
 	SendGridAPIKey  string
 	FromEmail       string
-	ToEmail         string
 	GeminiRateLimit time.Duration
 }
 

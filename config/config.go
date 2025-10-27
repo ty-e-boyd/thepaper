@@ -26,11 +26,6 @@ func Load() (*models.Config, error) {
 		return nil, fmt.Errorf("FROM_EMAIL environment variable is required")
 	}
 
-	toEmail := os.Getenv("TO_EMAIL")
-	if toEmail == "" {
-		return nil, fmt.Errorf("TO_EMAIL environment variable is required")
-	}
-
 	// Optional: rate limit delay in milliseconds (default 200ms for paid tier)
 	rateLimitMs := 200
 	if rateLimitStr := os.Getenv("GEMINI_RATE_LIMIT_MS"); rateLimitStr != "" {
@@ -42,10 +37,9 @@ func Load() (*models.Config, error) {
 	}
 
 	return &models.Config{
-		GeminiAPIKey:     geminiKey,
-		SendGridAPIKey:   sendgridKey,
-		FromEmail:        fromEmail,
-		ToEmail:          toEmail,
-		GeminiRateLimit:  time.Duration(rateLimitMs) * time.Millisecond,
+		GeminiAPIKey:    geminiKey,
+		SendGridAPIKey:  sendgridKey,
+		FromEmail:       fromEmail,
+		GeminiRateLimit: time.Duration(rateLimitMs) * time.Millisecond,
 	}, nil
 }

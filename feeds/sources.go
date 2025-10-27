@@ -1,6 +1,13 @@
 package feeds
 
-// FeedSources organizes RSS feeds by category
+import (
+	"log"
+
+	"github.com/ty-e-boyd/thepaper/database"
+)
+
+// FeedSources organizes RSS feeds by category (DEPRECATED - kept for seeding)
+// Use GetAllFeeds() to pull from database instead
 var FeedSources = map[string][]string{
 	"General Tech News": {
 		"http://feeds.feedburner.com/TechCrunch/",
@@ -114,24 +121,54 @@ var FeedSources = map[string][]string{
 	},
 }
 
-// GetAllFeeds returns a flat list of all feed URLs across all categories
+// GetAllFeeds returns a flat list of all active feed URLs from the database
 func GetAllFeeds() []string {
-	var allFeeds []string
-	for _, feeds := range FeedSources {
-		allFeeds = append(allFeeds, feeds...)
+	sources, err := database.GetAllActiveSources()
+	if err != nil {
+		log.Fatalf("Failed to get sources from database: %v", err)
 	}
+
+	if len(sources) == 0 {
+		log.Fatalf("No active sources found in database. Run 'cd scripts && go run seed_sources.go' to populate sources.")
+	}
+
+	var allFeeds []string
+	for _, source := range sources {
+		allFeeds = append(allFeeds, source.URL)
+	}
+
 	return allFeeds
 }
 
-// GetFeedsByCategory returns feeds for a specific category
+// GetFeedsByCategory returns feeds for a specific category from the database
 func GetFeedsByCategory(category string) []string {
-	return FeedSources[category]
+	sources, err := database.GetSourcesByCategory(category)
+	if err != nil {
+		log.Fatalf("Failed to get sources for category %s from database: %v", category, err)
+	}
+
+	var feeds []string
+	for _, source := range sources {
+		feeds = append(feeds, source.URL)
+	}
+	return feeds
 }
 
-// GetCategories returns all available category names
+// GetCategories returns all available category names from the database
 func GetCategories() []string {
-	categories := make([]string, 0, len(FeedSources))
-	for category := range FeedSources {
+	sources, err := database.GetAllActiveSources()
+	if err != nil {
+		log.Fatalf("Failed to get sources from database: %v", err)
+	}
+
+	// Build unique category list
+	categoryMap := make(map[string]bool)
+	for _, source := range sources {
+		categoryMap[source.Category] = true
+	}
+
+	categories := make([]string, 0, len(categoryMap))
+	for category := range categoryMap {
 		categories = append(categories, category)
 	}
 	return categories

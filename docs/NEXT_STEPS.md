@@ -90,26 +90,26 @@ CREATE INDEX idx_user_emails_email_id ON user_emails(email_id);
 
 ## 2. Implementation Tasks
 
-### Phase 1: Database Integration
-- [ ] Add database driver dependency (`github.com/lib/pq` for PostgreSQL)
-- [ ] Create database configuration (add `DATABASE_URL` to .env)
-- [ ] Create migration tool or SQL scripts for schema creation
-- [ ] Add database connection package (`database/db.go`)
-- [ ] Create models/repositories for each table
+### Phase 1: Database Integration ✅ COMPLETED
+- [x] Add database driver dependency (using GORM with `gorm.io/gorm` and `gorm.io/driver/postgres`)
+- [x] Create database configuration (add `DB_CONNECT_STRING` to .env)
+- [x] Create migration tool (using GORM AutoMigrate in `database/db.go`)
+- [x] Add database connection package (`database/db.go`)
+- [x] Create models/repositories for each table (`database/models.go`, `users.go`, `sources.go`, `emails.go`)
 
-### Phase 2: Email History Tracking
-- [ ] Before sending email, save email record to `emails_sent`
-- [ ] Save selected articles to `email_articles` with foreign key to email
-- [ ] Query `email_articles` to check if article URL was sent in last 30 days
-- [ ] Filter out previously sent articles during selection process
+### Phase 2: Email History Tracking ✅ COMPLETED
+- [x] Before sending email, save email record to `emails_sent`
+- [x] Save selected articles to `email_articles` with foreign key to email
+- [x] Query `email_articles` to check if article URL was sent in last 30 days
+- [x] Filter out previously sent articles during selection process
 - [ ] Add fallback logic if not enough new articles (expand time window or lower threshold)
 
-### Phase 3: Multi-User Support
-- [ ] Update `config/config.go` to support multiple recipients
-- [ ] Modify email sending loop to iterate through subscribed users
-- [ ] Record each send in `user_emails` table
-- [ ] Add personalization (user's name in greeting)
-- [ ] Implement unsubscribe token generation
+### Phase 3: Multi-User Support ✅ COMPLETED
+- [x] Update main.go to pull recipients from database (config.go still has TO_EMAIL for fallback)
+- [x] Modify email sending loop to iterate through subscribed users
+- [x] Record each send in `user_emails` table
+- [ ] Add personalization (user's name in greeting) - TODO: Update email template
+- [x] Implement unsubscribe token generation
 
 ### Phase 4: Subscription Management
 - [ ] Create HTTP server with web endpoints
@@ -123,17 +123,21 @@ CREATE INDEX idx_user_emails_email_id ON user_emails(email_id);
 
 ## 3. Code Structure Changes
 
-### New Packages to Create:
+### New Packages Created: ✅
+
 
 ```
 thepaper/
-├── database/
-│   ├── db.go              # Database connection & initialization
-│   ├── migrations.go      # Schema migrations
-│   └── repositories/
-│       ├── users.go       # User CRUD operations
-│       ├── emails.go      # Email history operations
-│       └── articles.go    # Article tracking operations
+├── database/              # ✅ COMPLETED
+│   ├── db.go              # ✅ Database connection & initialization
+│   ├── models.go          # ✅ GORM models for all tables
+│   ├── users.go           # ✅ User CRUD operations
+│   ├── emails.go          # ✅ Email history operations
+│   └── sources.go         # ✅ RSS feed source operations
+├── scripts/               # ✅ COMPLETED
+│   ├── seed_sources.go    # ✅ Script to seed RSS sources into DB
+│   ├── add_user.go        # ✅ Script to add users
+│   └── README.md          # ✅ Documentation for scripts
 ├── web/
 │   ├── server.go          # HTTP server setup
 │   ├── handlers/
@@ -200,20 +204,20 @@ DUPLICATE_WINDOW_DAYS=30  # How far back to check for duplicate articles
 
 ## 6. Migration Strategy
 
-### Step 1: Add Database (Non-Breaking)
-- Add database without removing single-user functionality
-- Track emails being sent to existing single user
-- Test thoroughly
+### Step 1: Add Database (Non-Breaking) ✅ COMPLETED
+- ✅ Add database without removing single-user functionality
+- ✅ Track emails being sent to existing single user
+- ✅ Test thoroughly
 
-### Step 2: Multi-User Support
-- Keep `TO_EMAIL` as fallback
-- Add user import script to seed initial users
-- Switch to database-driven recipient list
+### Step 2: Multi-User Support ✅ COMPLETED
+- ✅ Keep `TO_EMAIL` as fallback (still in config)
+- ✅ Add user import script to seed initial users (`scripts/add_user.go`)
+- ✅ Switch to database-driven recipient list
 
-### Step 3: Web Interface
-- Launch subscription management endpoints
-- Update email template with unsubscribe link
-- Announce to users
+### Step 3: Web Interface - TODO
+- [ ] Launch subscription management endpoints
+- [ ] Update email template with unsubscribe link
+- [ ] Announce to users
 
 ---
 
@@ -283,10 +287,10 @@ DUPLICATE_WINDOW_DAYS=30  # How far back to check for duplicate articles
 ## Priority Order
 
 **High Priority:**
-1. Database setup with schema
-2. Email history tracking (prevent duplicate articles)
-3. Multi-user support (send to multiple recipients)
-4. Unsubscribe functionality
+1. ✅ Database setup with schema
+2. ✅ Email history tracking (prevent duplicate articles)
+3. ✅ Multi-user support (send to multiple recipients)
+4. ⏳ Unsubscribe functionality (token generation done, web interface pending)
 
 **Medium Priority:**
 5. Subscription web interface
@@ -302,12 +306,35 @@ DUPLICATE_WINDOW_DAYS=30  # How far back to check for duplicate articles
 
 ## Getting Started
 
-1. Choose database (recommend PostgreSQL)
-2. Set up local database
-3. Create schema using SQL scripts above
-4. Add `database` package with connection logic
-5. Update `main.go` to check for duplicate articles
-6. Test with existing single-user setup
-7. Gradually add multi-user support
+1. ✅ Choose database (using PostgreSQL)
+2. ✅ Set up local database
+3. ✅ Create schema using GORM AutoMigrate
+4. ✅ Add `database` package with connection logic
+5. ✅ Update `main.go` to check for duplicate articles
+6. ✅ Test with existing single-user setup
+7. ✅ Gradually add multi-user support
+
+## ✅ COMPLETED (Phase 1-3)
+
+### What's Been Done:
+- **Database Setup**: PostgreSQL with GORM ORM
+- **Tables Created**: users, sources, emails_sent, email_articles, user_emails
+- **Source Management**: All 81 RSS feeds migrated to database
+- **User Management**: User creation with unsubscribe tokens
+- **Email Tracking**: Duplicate prevention (30-day window)
+- **Multi-User Support**: Sends to all subscribed users from database
+- **Scripts**: Utility scripts for seeding sources and adding users
+
+### How to Use:
+1. Set `DB_CONNECT_STRING` in your `.env` file
+2. Run `cd scripts && go run seed_sources.go` (first time only)
+3. Run `cd scripts && go run add_user.go` to add users
+4. Run `./thepaper` to send emails (pulls sources and users from DB)
+
+### Next Steps:
+- Build web interface for subscription management
+- Add unsubscribe link to email template
+- Implement user preferences (categories, frequency)
+- Add analytics dashboard
 
 Good luck! 🚀
