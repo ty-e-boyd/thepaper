@@ -10,7 +10,7 @@ import (
 type User struct {
 	ID               uint   `gorm:"primaryKey"`
 	Email            string `gorm:"uniqueIndex;not null"`
-	Name             string `gorm:"default:null"`
+	Name             string // Optional field, nullable
 	Subscribed       bool   `gorm:"default:true"`
 	UnsubscribeToken string `gorm:"uniqueIndex;not null"`
 	CreatedAt        time.Time

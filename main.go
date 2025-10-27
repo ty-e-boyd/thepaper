@@ -218,8 +218,8 @@ func main() {
 	for _, user := range users {
 		log.Printf("Sending email to %s (%s)...", user.Email, user.Name)
 
-		// Build personalized HTML email
-		htmlContent := email.BuildHTML(selectedArticles, len(articles), len(uniqueSources))
+		// Build personalized HTML email with unsubscribe token
+		htmlContent := email.BuildHTMLWithToken(selectedArticles, len(articles), len(uniqueSources), user.UnsubscribeToken)
 
 		err = sender.Send(cfg.FromEmail, user.Email, subject, htmlContent)
 		if err != nil {

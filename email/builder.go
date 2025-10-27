@@ -2,6 +2,7 @@ package email
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -51,6 +52,11 @@ func getTagColor(tag string) string {
 
 // BuildHTML generates an HTML email from analyzed articles
 func BuildHTML(articles []models.AnalyzedArticle, totalArticles, totalSources int) string {
+	return BuildHTMLWithToken(articles, totalArticles, totalSources, "")
+}
+
+// BuildHTMLWithToken generates an HTML email from analyzed articles with unsubscribe token
+func BuildHTMLWithToken(articles []models.AnalyzedArticle, totalArticles, totalSources int, unsubscribeToken string) string {
 	var sb strings.Builder
 
 	// Email header and styles
@@ -220,15 +226,26 @@ func BuildHTML(articles []models.AnalyzedArticle, totalArticles, totalSources in
 		</div>
 `, totalArticles, totalSources))
 
-	// Footer
-	sb.WriteString(`
+	// Footer with unsubscribe link
+	portfolioURL := os.Getenv("PORTFOLIO_URL")
+	if portfolioURL == "" {
+		portfolioURL = "http://localhost:4040"
+	}
+
+	unsubscribeLink := ""
+	if unsubscribeToken != "" {
+		unsubscribeLink = fmt.Sprintf(`<p><a href="%s/unsubscribe?token=%s" style="color: #95a5a6;">Unsubscribe from this newsletter</a></p>`, portfolioURL, unsubscribeToken)
+	}
+
+	sb.WriteString(fmt.Sprintf(`
 		<div class="footer">
 			<p>You're receiving this because you subscribed to The Paper daily digest.</p>
 			<p>Curated and summarized by AI | Powered by Gemini</p>
+			%s
 		</div>
 	</div>
 </body>
-</html>`)
+</html>`, unsubscribeLink))
 
 	return sb.String()
 }
